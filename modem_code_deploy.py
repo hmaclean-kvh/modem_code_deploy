@@ -470,20 +470,15 @@ if __name__ == "__main__":
 				write_active_terminals_to_file(active_terminals[chunk_size*chunk_number:])
 				logging.info('{} terminals remaining in modem code deploy'.format(len(active_terminals[chunk_size*chunk_number:])))
 				logging.info('Remaining active terminals written to disk')
-			# else:
-			# 	logging.warning('Sweeper returned {} {}'.format(status, job_ids))
+
 			if deploy_parameters['continuous'] == False:
+				
 				# wait for user input
-				uinput = raw_input("Press 'c' to continue or 'a' to abort...")
-				if uinput == 'c':
-					logging.info('Starting next chunk')
-				elif uinput == 'a':
-					logging.info('ABORT')
-					sys.exit(0)
+				if shall_we_proceed():
+					pass
 				else:
-					logging.info('User input: {}'.format(uinput))
-					logging.warning('ABORT')
 					sys.exit(0)
+
 			else:
 				time.sleep(deploy_parameters['chunk_interval'])
 
