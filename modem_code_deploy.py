@@ -1,8 +1,6 @@
 #!/usr/bin/python
 import requests
 import sys
-import os
-import pprint
 import time
 import logging
 import pickle
@@ -10,17 +8,12 @@ import json
 
 from multiprocessing import Pool
 
-
+# Setup logging
 logging.basicConfig(filename='modem_code_deploy.log',format='%(asctime)s %(levelname)s %(message)s', level=logging.INFO)
 
+# To be configured with relevant OSS creds
 oss_creds = ()
 oss_url = ''
-
-headers = {
-	'authorization': "Basic b3BzYXBpQGt2aC5jb206a1ZoITIzNDU2",
-	'content-type': "application/json",
-	'cache-control': "no-cache",
-}
 
 def get_all_oss_terminal_packages():
 	r = requests.get(
@@ -244,26 +237,6 @@ def make_terminal_config_dict(some_obj_ids, destination_template):
 	#logging.info(terminal_static_dict)
 	return terminal_static_dict
 
-# This functions returns all terminals obj_ids, split into two lists
-def hard_to_name_function(some_list,template_and_version_to_be_rebuilt):
-	term_scode, terminals = get_all_oss_terminals()
-	
-	diff_list = []
-	converted_input_list = []
-
-	if term_scode == 200:
-		for terminal in terminals:
-			if terminal['contactnote'] == template_and_version_to_be_rebuilt:
-				if terminal['terminal_id'] not in some_list:
-					diff_list.append(terminal['obj_id'])
-				else:
-					converted_input_list.append(terminal['obj_id'])
-			
-	else:
-		logging.warning('create diff list get_all_oss_terminals() returned {}'.format(terminals))
-
-	return diff_list, converted_input_list
-
 def shall_we_proceed():
 	uinput = raw_input("Press 'c' to continue or 'a' to abort...")
 	if uinput == 'c':
@@ -272,7 +245,6 @@ def shall_we_proceed():
 	else:
 		logging.info('ABORT')
 		return False
-
 
 def create_exclusion(someTemplateToRebuild, somePlanToRebuild, someNumberofTerminals):
 	term_scode, terminals = get_all_oss_terminals()
@@ -361,25 +333,66 @@ if __name__ == "__main__":
 	else:
 		# get all subscribers
 		sub_scode, subscribers = get_all_oss_subscriber()
-		
-		if sub_scode == 200:
-			for sub in subscribers:
-				if ('-01' in sub['subscriber_id'] and
-						'Enabled' not in sub['subscriber_plan_id'] and
-						deploy_parameters['population'] == 'active' and
-						sub['subscriber_id'].replace('-01','') not in deploy_parameters['exception_list']):
-					# Look up terminal obj_id
-					term_scode, terminal_obj = get_oss_terminal(sub['subscriber_id'].replace('-01',''))
-					logging.info("{} to get new modem code".format(sub['subscriber_id'].replace('-01','')))
-					if term_scode == 200 and len(terminal_obj) == 1:
-						active_terminals.append(terminal_obj[0]['obj_id'])
-						human_readable_active_terminals.append(sub['subscriber_id'].replace('-01',''))
-					else:
-						logging.warning('Failed terminal lookup for: {}'.format(sub['subscriber_id']))
-				# TODO build option to select not active population
 
-			logging.info("Active terminals: {}".format(len(active_terminals)))
-			logging.info("Active terminals: {}".format(human_readable_active_terminals))
+		if sub_scode == 200:
+			
+			for sub in subscribers:
+				
+				# Active: terminals that have paying subsribers behind them A.K.A a terminal with a subscription other than enabled
+				if deploy_parameters['population'] == 'active':
+					
+					# 1.) Look at only -01 (avoids adding terminal once)
+					# 2.) Make sure terminal has a paying subscription
+					# 3.) Make sure terminal is not in the exception list
+					if ('-01' in sub['subscriber_id'] and
+							'Enabled' not in sub['subscriber_plan_id'] and
+							sub['subscriber_id'].replace('-01','') not in deploy_parameters['exception_list']):
+
+						# Look up terminal obj_id
+						term_scode, terminal_obj = get_oss_terminal(sub['subscriber_id'].replace('-01',''))
+						
+						# Make sure lookup was a success and returned at least on obj
+						if term_scode == 200 and len(terminal_obj) == 1:
+							logging.info("{} to get new modem code".format(sub['subscriber_id'].replace('-01','')))
+
+							# Add terminal obj id to the list of active terminals
+							active_terminals.append(terminal_obj[0]['obj_id'])
+
+							# Add terminal ID to a list of human readable terminals
+							human_readable_active_terminals.append(sub['subscriber_id'].replace('-01',''))
+
+						else:
+							logging.warning('Failed terminal lookup for: {}'.format(sub['subscriber_id']))
+				
+				# Dormant: terminals that do not have paying subscribers behind them A.K.A a terminal with a subscription of enabled
+				elif deploy_parameters['population'] == 'dormant':
+
+					# 1.) Look at only -01 (avoids adding terminal once)
+					# 2.) Make sure terminal is in enabled plan
+					# 3.) Make sure terminal is not in the exception list
+					if ('-01' in sub['subscriber_id'] and
+							'Enabled' in sub['subscriber_plan_id'] and
+							sub['subscriber_id'].replace('-01','') not in deploy_parameters['exception_list']):
+
+						# Look up terminal obj_id
+						term_scode, terminal_obj = get_oss_terminal(sub['subscriber_id'].replace('-01',''))
+						
+						# Make sure lookup was a success and returned at least on obj
+						if term_scode == 200 and len(terminal_obj) == 1:
+							logging.info("{} to get new modem code".format(sub['subscriber_id'].replace('-01','')))
+
+							# Add terminal obj id to the list of active terminals
+							active_terminals.append(terminal_obj[0]['obj_id'])
+
+							# Add terminal ID to a list of human readable terminals
+							human_readable_active_terminals.append(sub['subscriber_id'].replace('-01',''))
+
+						else:
+							logging.warning('Failed terminal lookup for: {}'.format(sub['subscriber_id']))
+
+
+			logging.info("Number of terminals to rebuild: {}".format(len(active_terminals)))
+			logging.info("Terminal ID's: {}".format(human_readable_active_terminals))
 		else:
 			logging.warning('Failed to get all subscribers')
 		# write active terminals to file
@@ -390,7 +403,7 @@ if __name__ == "__main__":
 	# Store obj_ids of standby sw
 	standby_sw_obj_id = 0
 
-	# Read in all software packages
+	# Read in all software packages and map name of package to obj_id
 	sw_status_code, sw_data = get_all_oss_terminal_packages()
 	if sw_status_code == 200:
 		for sw_package in sw_data:
@@ -402,11 +415,12 @@ if __name__ == "__main__":
 		logging.warning("Software package call failed. {}".format(sw_data))
 		sys.exit(0)
 
+	# if lookups fail exit program
 	if not active_sw_obj_id or not standby_sw_obj_id:
 		logging.warning('One of the software packages strings did not match a string in terminal packages response')
 		sys.exit(0)
 		
-
+	# Prompt user for imput
 	if shall_we_proceed():
 		# Iterate overall active terminals
 		chunk_size = deploy_parameters["chunk_size"]
